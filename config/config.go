@@ -1,10 +1,9 @@
+// This is what your local config/config.go MUST contain for the Config struct
 package config
 
 import (
 	"log"
 	"os"
-
-	// "strconv" // Required for parsing integer environment variables
 
 	"github.com/joho/godotenv" // For loading .env files
 )
@@ -16,7 +15,7 @@ type Config struct {
 	AuthEmail      string
 	AuthPassword   string
 	JWTSecret      string
-	// Add other configurations here (e.g., database connection strings)
+	DBURL          string // <--- THIS LINE IS CRUCIAL AND MUST BE PRESENT
 }
 
 // AppConfig is a global instance of the Config struct.
@@ -66,34 +65,14 @@ func LoadConfig() error {
 		log.Printf("JWT_SECRET not set, defaulting to default secret")
 	}
 
-	// You can add more robust validation here if needed, e.g., checking for empty required fields.
+	// Load database URL
+	AppConfig.DBURL = os.Getenv("DB_URL")
+	if AppConfig.DBURL == "" {
+		// Provide a default DB_URL for local development if not set
+		AppConfig.DBURL = "host=localhost user=postgres password=password dbname=mydatabase port=5432 sslmode=disable"
+		log.Printf("DB_URL not set, defaulting to: %s", AppConfig.DBURL)
+	}
 
 	log.Println("Configuration loaded successfully.")
 	return nil
 }
-
-// Example of how to add other config types (e.g., database)
-// type DatabaseConfig struct {
-// 	Host     string
-// 	Port     int
-// 	User     string
-// 	Password string
-// 	DBName   string
-// }
-
-// func loadDatabaseConfig() {
-// 	// Example: Loading DB_PORT as an integer
-// 	dbPortStr := os.Getenv("DB_PORT")
-// 	if dbPortStr != "" {
-// 		dbPort, err := strconv.Atoi(dbPortStr)
-// 		if err != nil {
-// 			log.Printf("Warning: DB_PORT is not a valid integer, defaulting to 5432: %v", err)
-// 			AppConfig.DB.Port = 5432
-// 		} else {
-// 			AppConfig.DB.Port = dbPort
-// 		}
-// 	} else {
-// 		AppConfig.DB.Port = 5432 // Default DB port
-// 	}
-// 	// ... load other DB fields
-// }
