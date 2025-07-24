@@ -3,13 +3,14 @@ package main
 import (
 	"log"
 	"net/http"
-	"time" // Still needed for time.Now() in health check
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 
 	"github.com/anpsniper/anpbayu-be/config"   // Import your config package
 	"github.com/anpsniper/anpbayu-be/database" // Import your database package
+	"github.com/anpsniper/anpbayu-be/models"   // Import your models package
 	"github.com/anpsniper/anpbayu-be/routes"   // Import your routes package
 )
 
@@ -26,6 +27,19 @@ func main() {
 	}
 	// Ensure database connection is closed when the application exits
 	defer database.CloseDatabase()
+
+	// Seed roles and example user
+	log.Println("Seeding roles...")
+	if err := models.SeedRoles(); err != nil { // Menambahkan penanganan error
+		log.Fatalf("Failed to seed roles: %v", err)
+	}
+	log.Println("Roles seeded successfully.")
+
+	log.Println("Seeding example user...")
+	if err := models.SeedExampleUser(); err != nil { // Menambahkan penanganan error
+		log.Fatalf("Failed to seed example user: %v", err)
+	}
+	log.Println("Example user seeded successfully.")
 
 	// Initialize Fiber app
 	app := fiber.New()
