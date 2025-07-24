@@ -3,105 +3,90 @@ package controllers
 import (
 	"log"
 	"net/http"
-	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/golang-jwt/jwt/v5" // Import JWT library
+	"golang.org/x/crypto/bcrypt" // For password comparison
 
-	"github.com/anpsniper/anpbayu-be/config" // Import your config package
-	"github.com/anpsniper/anpbayu-be/middleware"
-	"github.com/anpsniper/anpbayu-be/services" // Import your services package
+	// Import models package for User struct
+	"github.com/anpsniper/anpbayu-be/services" // Import services package for UserService
 )
 
-// LoginRequest represents the expected payload for the login endpoint
+// AuthController handles authentication-related requests.
+type AuthController struct {
+	UserService *services.UserService // UserService dependency
+}
+
+// NewAuthController creates and returns a new AuthController instance.
+func NewAuthController(userService *services.UserService) *AuthController {
+	return &AuthController{
+		UserService: userService,
+	}
+}
+
+// LoginRequest represents the expected structure of the login request body.
 type LoginRequest struct {
-	Email    string `json:"email"`
+	Username string `json:"username"`
 	Password string `json:"password"`
 }
 
-// LoginResponse represents the response for the login endpoint
-type LoginResponse struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	Token   string `json:"token,omitempty"` // JWT token will be included here
-}
-
-// AuthController holds dependencies for authentication-related operations.
-type AuthController struct {
-	UserService services.UserService // Dependency on the UserService interface
-}
-
-// NewAuthController creates and returns a new instance of AuthController.
-// It initializes with a concrete implementation of UserService.
-func NewAuthController() *AuthController {
-	return &AuthController{
-		UserService: services.NewUserService(), // Instantiate the user service
-	}
-}
-
-// Login handles user authentication.
-// It expects an email and password in the request body, validates them
-// against the database, and generates a JWT upon successful authentication.
-func (ac *AuthController) Login(c *fiber.Ctx) error {
-	var req LoginRequest
-	if err := c.BodyParser(&req); err != nil {
-		log.Printf("Error parsing login request: %v", err)
-		return c.Status(http.StatusBadRequest).JSON(LoginResponse{
-			Success: false,
-			Message: "Invalid request body",
+// Login handles user login requests.
+// It validates credentials and returns a success/failure response.
+func (c *AuthController) Login(ctx *fiber.Ctx) error {
+	// 1. Parse the request body
+	req := new(LoginRequest)
+	if err := ctx.BodyParser(req); err != nil {
+		log.Printf("Error parsing login request body: %v", err)
+		return ctx.Status(http.StatusBadRequest).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid request body",
 		})
 	}
 
-	// 1. Retrieve user by email from the database
-	user, err := ac.UserService.GetUserByEmail(req.Email)
+	// Log received credentials (for debugging, remove in production)
+	log.Printf("Login attempt for username: %s", req.Username)
+
+	// 2. Fetch the user from the database by username (or email, depending on your login strategy)
+	user, err := c.UserService.GetUserByEmail(req.Username) // Assuming username is email
 	if err != nil {
-		log.Printf("Login failed for email '%s': %v", req.Email, err)
-		// Return a generic "Invalid credentials" to avoid leaking user existence
-		return c.Status(http.StatusUnauthorized).JSON(LoginResponse{
-			Success: false,
-			Message: "Invalid credentials",
+		log.Printf("Error fetching user by email %s: %v", req.Username, err)
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Internal server error during user retrieval",
+		})
+	}
+	if user == nil {
+		log.Printf("Login failed: User with email %s not found.", req.Username)
+		return ctx.Status(http.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid credentials", // Generic message for security
 		})
 	}
 
-	// 2. Compare the provided password with the hashed password from the database
-	if !services.ComparePasswords([]byte(user.Password), []byte(req.Password)) {
-		log.Printf("Login failed for email '%s': Incorrect password", req.Email)
-		return c.Status(http.StatusUnauthorized).JSON(LoginResponse{
-			Success: false,
-			Message: "Invalid credentials",
+	// 3. Compare the provided password with the hashed password from the database
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password))
+	if err != nil {
+		// If passwords do not match, bcrypt.CompareHashAndPassword returns an error
+		log.Printf("Login failed for user %s: Invalid password.", req.Username)
+		return ctx.Status(http.StatusUnauthorized).JSON(fiber.Map{
+			"success": false,
+			"message": "Invalid credentials", // Generic message for security
 		})
 	}
 
-	// 3. Generate JWT token
-	// Define claims for the token
-	claims := middleware.Claims{
-		Email: req.Email,
-		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().Add(time.Hour * 24)), // Token expires in 24 hours
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
-			NotBefore: jwt.NewNumericDate(time.Now()),
+	// 4. If credentials are valid, return a success response
+	// In a real application, you would generate a JWT token here and return it.
+	// For NextAuth, the 'user' object returned here is used to create the session.
+	// Ensure you DO NOT send the password_hash back to the frontend.
+	log.Printf("User %s logged in successfully.", user.Email)
+	return ctx.Status(http.StatusOK).JSON(fiber.Map{
+		"success": true,
+		"message": "Login successful",
+		"user": fiber.Map{ // Return user details (excluding password hash)
+			"id":       user.ID,
+			"username": user.Username,
+			"email":    user.Email,
+			"role":     user.Role.Name, // Include role name
 		},
-	}
-
-	// Create a new token with the specified claims and signing method
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-
-	// Sign the token with the secret key from config
-	tokenString, err := token.SignedString([]byte(config.AppConfig.JWTSecret))
-	if err != nil {
-		log.Printf("Error signing JWT token: %v", err)
-		return c.Status(http.StatusInternalServerError).JSON(LoginResponse{
-			Success: false,
-			Message: "Failed to generate token",
-		})
-	}
-
-	log.Printf("User '%s' logged in successfully. Token generated.", req.Email)
-	return c.Status(http.StatusOK).JSON(LoginResponse{
-		Success: true,
-		Message: "Login successful",
-		Token:   tokenString, // Return the generated JWT token
+		// "token": "your_generated_jwt_token_here", // Placeholder for JWT
 	})
 }
-
-// You can add other authentication-related methods here, e.g., Register, Logout, RefreshToken
