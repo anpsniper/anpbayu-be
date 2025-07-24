@@ -74,7 +74,7 @@ func (s *UserServiceImpl) CreateUser(email, password string) (*models.User, erro
 // GetUserByEmail retrieves a user from the database by their email.
 func (s *UserServiceImpl) GetUserByEmail(email string) (*models.User, error) {
 	query := `
-		SELECT id, email, password_hash, created_at, updated_at, name
+		SELECT id, email, password, created_at, updated_at, name
 		FROM db_bayneta.users
 		WHERE email = $1;
 	`
@@ -84,7 +84,7 @@ func (s *UserServiceImpl) GetUserByEmail(email string) (*models.User, error) {
 	err := s.db.QueryRow(query, email).Scan(
 		&user.ID,
 		&user.Email,
-		&user.PasswordHash,
+		&user.Password,
 		&user.CreatedAt,
 		&user.UpdatedAt,
 		&name, // Scan into sql.NullString

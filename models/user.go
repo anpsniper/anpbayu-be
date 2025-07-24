@@ -7,12 +7,15 @@ import (
 // User represents a user record in the database.
 // This struct will be used for storing and retrieving user data.
 type User struct {
-	ID           string    `json:"id"`             // Unique identifier for the user
-	Email        string    `json:"email"`          // User's email, typically unique
-	PasswordHash string    `json:"-"`              // Hashed password, omitted from JSON output
-	CreatedAt    time.Time `json:"created_at"`     // Timestamp when the user was created
-	UpdatedAt    time.Time `json:"updated_at"`     // Timestamp when the user record was last updated
-	Name         string    `json:"name,omitempty"` // User's full name (optional), added for GetProfile
+	ID        string    `json:"id"`
+	Name      string    `json:"name,omitempty"`
+	Username  string    `json:"username"`
+	Email     string    `json:"email"`
+	Password  string    `json:"-"`              // Password should not be marshaled to JSON
+	RoleID    string    `json:"role_id"`        // Foreign key to the roles table
+	Role      *Role     `json:"role,omitempty"` // Embedded Role struct for eager loading, omitempty to exclude if nil
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // UserCreateRequest represents the expected payload for creating a new user (e.g., registration).

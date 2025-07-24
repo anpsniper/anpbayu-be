@@ -64,7 +64,7 @@ func (ac *AuthController) Login(c *fiber.Ctx) error {
 	}
 
 	// 2. Compare the provided password with the hashed password from the database
-	if !services.ComparePasswords([]byte(user.PasswordHash), []byte(req.Password)) {
+	if !services.ComparePasswords([]byte(user.Password), []byte(req.Password)) {
 		log.Printf("Login failed for email '%s': Incorrect password", req.Email)
 		return c.Status(http.StatusUnauthorized).JSON(LoginResponse{
 			Success: false,
