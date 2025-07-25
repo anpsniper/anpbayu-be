@@ -12,8 +12,24 @@ type User struct {
 	Password  string    `json:"-"`              // Password should not be marshaled to JSON
 	RoleID    string    `json:"role_id"`        // Foreign key to the roles table
 	Role      *Role     `json:"role,omitempty"` // Embedded Role struct for eager loading, omitempty to exclude if nil
+	RoleName  string    `json:"-"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+}
+
+type UserResponse struct {
+	ID        string    `json:"id"`
+	Username  string    `json:"username"`
+	Email     string    `json:"email"`
+	RoleID    string    `json:"role_id"`
+	RoleName  string    `json:"role_name"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
+}
+
+type LstRoleResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 // Post represents a blog post or an article.
@@ -43,6 +59,14 @@ type Session struct {
 	Token     string    `json:"token"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type UpdateUserRequest struct {
+	ID       string  `json:"id"` // User ID is required for the update operation
+	Username string  `json:"username"`
+	Email    string  `json:"email"`
+	Password *string `json:"password,omitempty"` // Use pointer to make it optional.
+	RoleID   string  `json:"role_id"`
 }
 
 // NewUser creates a new User instance with default creation/update timestamps.

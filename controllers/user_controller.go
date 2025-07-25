@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 
 	// For time.Now()
 	"github.com/gofiber/fiber/v2" // For generating UUIDs
@@ -25,17 +26,81 @@ func NewUserController(userService services.UserServiceInterface) *UserControlle
 	}
 }
 
-// GetAllUsers retrieves all users from the database.
-// This is an example and might need pagination/filtering for large datasets.
 func (c *UserController) GetAllUsers(ctx *fiber.Ctx) error {
-	// In a real application, you'd implement a method in UserService
-	// to get all users. For now, let's return a placeholder.
-	// You would typically query the database for all users here.
 	log.Println("GetAllUsers endpoint hit.")
+
+	search := ctx.Query("search", "")                 // Get search term, default to empty string
+	page, err := strconv.Atoi(ctx.Query("page", "1")) // Get page number, default to 1
+	if err != nil || page < 1 {
+		page = 1
+	}
+	limit, err := strconv.Atoi(ctx.Query("limit", "10")) // Get limit per page, default to 10
+	if err != nil || limit < 1 {
+		limit = 10
+	}
+
+	users, totalPages, totalItems, err := c.UserService.GetAllUsers(search, page, limit)
+	if err != nil {
+		log.Printf("Error fetching all users: %v", err)
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to retrieve users",
+		})
+	}
+
+	// --- START OF REQUIRED MAPPING ---
+	// Map models.User to models.UserResponse for the client
+	userResponses := make([]models.UserResponse, len(users))
+	for i, user := range users {
+		userResponses[i] = models.UserResponse{
+			ID:        user.ID,
+			Username:  user.Username,
+			Email:     user.Email,
+			RoleID:    user.RoleID,
+			RoleName:  user.RoleName,
+			CreatedAt: user.CreatedAt,
+			UpdatedAt: user.UpdatedAt,
+		}
+	}
+	// --- END OF REQUIRED MAPPING ---
+
+	return ctx.Status(http.StatusOK).JSON(fiber.Map{
+		"success":     true,
+		"message":     "Users retrieved successfully",
+		"data":        userResponses, // <-- Now returning userResponses
+		"currentPage": page,
+		"totalPages":  totalPages,
+		"totalItems":  totalItems,
+	})
+}
+
+func (c *UserController) GetAllRoles(ctx *fiber.Ctx) error {
+	log.Println("GetAllRoles endpoint hit.")
+
+	roles, err := c.UserService.GetAllRoles()
+	if err != nil {
+		log.Printf("Error fetching all roles: %v", err)
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to retrieve roles due to an internal error.",
+		})
+	}
+
+	// Map models.Role to models.RoleResponse for API output
+	// Jika Anda hanya ingin ID dan Name, gunakan models.RoleResponse
+	// Jika Anda ingin semua field dari Role, cukup gunakan `roles` langsung
+	roleResponses := make([]models.LstRole, len(roles))
+	for i, role := range roles {
+		roleResponses[i] = models.LstRole{
+			ID:   role.ID,
+			Name: role.Name, // Akses role.Name, bukan role.Username
+		}
+	}
+
 	return ctx.Status(http.StatusOK).JSON(fiber.Map{
 		"success": true,
-		"message": "This endpoint would return all users.",
-		"data":    []string{"user1", "user2", "user3"}, // Placeholder data
+		"message": "Roles retrieved successfully.",
+		"data":    roleResponses, // Mengembalikan DTO yang dimapping
 	})
 }
 
@@ -130,24 +195,14 @@ type UpdateUserRequest struct {
 // UpdateUser updates an existing user's information.
 func (c *UserController) UpdateUser(ctx *fiber.Ctx) error {
 	id := ctx.Params("id") // Get user ID from URL parameters
-
-	// Fetch existing user to get current values (especially password hash)
-	existingUser, err := c.UserService.GetUserByID(id)
-	if err != nil {
-		log.Printf("Error fetching existing user for update %s: %v", id, err)
-		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+	if id == "" {
+		return ctx.Status(http.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": "Failed to retrieve user for update",
-		})
-	}
-	if existingUser == nil {
-		return ctx.Status(http.StatusNotFound).JSON(fiber.Map{
-			"success": false,
-			"message": "User not found for update",
+			"message": "User ID is required",
 		})
 	}
 
-	req := new(UpdateUserRequest)
+	req := new(models.UpdateUserRequest) // Use models.UpdateUserRequest
 	if err := ctx.BodyParser(req); err != nil {
 		log.Printf("Error parsing update user request body for ID %s: %v", id, err)
 		return ctx.Status(http.StatusBadRequest).JSON(fiber.Map{
@@ -156,32 +211,37 @@ func (c *UserController) UpdateUser(ctx *fiber.Ctx) error {
 		})
 	}
 
-	// Apply updates only if provided in the request
-	if req.Username != nil {
-		existingUser.Username = *req.Username
-	}
-	if req.Email != nil {
-		existingUser.Email = *req.Email
-	}
-	if req.RoleID != nil {
-		existingUser.RoleID = *req.RoleID
-	}
+	req.ID = id // Set the ID from the URL parameter to the request struct
 
-	err = c.UserService.UpdateUser(existingUser)
-	if err != nil {
-		log.Printf("Error updating user %s: %v", id, err)
-		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+	// Basic validation (ensure required fields for update are present)
+	if req.Username == "" || req.Email == "" || req.RoleID == "" {
+		return ctx.Status(http.StatusBadRequest).JSON(fiber.Map{
 			"success": false,
-			"message": "Failed to update user",
+			"message": "Username, email, and role ID are required for update",
 		})
 	}
 
-	// Do not return password hash
-	existingUser.Password = ""
+	// Pass the request directly to the service; conditional password update is handled in service.
+	err := c.UserService.UpdateUser(req)
+	if err != nil {
+		log.Printf("Error updating user %s: %v", id, err)
+		if err.Error() == fmt.Sprintf("user with ID %s not found for update", id) {
+			return ctx.Status(http.StatusNotFound).JSON(fiber.Map{
+				"success": false,
+				"message": "User not found",
+				"error":   err.Error(),
+			})
+		}
+		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{
+			"success": false,
+			"message": "Failed to update user",
+			"error":   err.Error(),
+		})
+	}
+
 	return ctx.Status(http.StatusOK).JSON(fiber.Map{
 		"success": true,
 		"message": "User updated successfully",
-		"data":    existingUser,
 	})
 }
 

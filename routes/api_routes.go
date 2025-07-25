@@ -15,7 +15,7 @@ func SetupAPIRoutes(app *fiber.App) {
 	// Initialize controllers with their dependencies.
 	authController := controllers.NewAuthController(userService)
 	userController := controllers.NewUserController(userService)
-	roleController := controllers.NewRoleController(roleService) // Initialize RoleController
+	roleController := controllers.NewRoleController(roleService)
 
 	// Group API routes under /api prefix.
 	api := app.Group("/api")
@@ -37,6 +37,7 @@ func SetupAPIRoutes(app *fiber.App) {
 	api.Post("/users", userController.CreateUser)       // POST /api/users
 	api.Put("/users/:id", userController.UpdateUser)    // PUT /api/users/:id
 	api.Delete("/users/:id", userController.DeleteUser) // DELETE /api/users/:id
+	api.Get("/lstroles", userController.GetAllRoles)    // GET /api/lstroles
 
 	// --- Role Management Routes ---
 	api.Get("/roles", roleController.GetAllRoles)       // GET /api/roles (with search, pagination)

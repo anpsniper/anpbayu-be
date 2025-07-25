@@ -9,16 +9,19 @@ import (
 	"github.com/anpsniper/anpbayu-be/database" // Import the database package
 	"github.com/anpsniper/anpbayu-be/models"   // Import the models package
 	"github.com/google/uuid"                   // For generating UUIDs
+	"golang.org/x/crypto/bcrypt"
 )
 
 // UserServiceInterface defines the methods that any user service implementation must provide.
 // This allows for dependency inversion and easier testing (e.g., by mocking the service).
 type UserServiceInterface interface {
+	GetAllUsers(search string, page, limit int) ([]models.User, int, int, error) // Returns users, totalPages, totalItems
 	GetUserByID(id string) (*models.User, error)
 	GetUserByEmail(email string) (*models.User, error)
 	CreateUser(user *models.User) error
-	UpdateUser(user *models.User) error
+	UpdateUser(req *models.UpdateUserRequest) error
 	DeleteUser(id string) error
+	GetAllRoles() ([]models.LstRole, error)
 }
 
 // UserService provides methods for user-related business logic, implementing UserServiceInterface.
@@ -31,6 +34,104 @@ type UserService struct {
 // It returns the concrete *UserService type, which satisfies the UserServiceInterface.
 func NewUserService() *UserService { // Changed return type to *UserService
 	return &UserService{}
+}
+
+func (s *UserService) GetAllUsers(search string, page, limit int) ([]models.User, int, int, error) {
+	if database.DB == nil {
+		return nil, 0, 0, fmt.Errorf("database connection is not initialized")
+	}
+
+	var users []models.User
+	var totalItems int
+
+	// Build the base query
+	countQuery := "SELECT COUNT(a.id) FROM users a LEFT JOIN roles b ON a.role_id = b.id WHERE 1=1"
+	selectQuery := "SELECT a.id, a.username, a.email, a.role_id, b.name AS role_name, a.created_at, a.updated_at FROM users a LEFT JOIN roles b ON a.role_id = b.id WHERE 1=1"
+	args := []interface{}{}
+	argCounter := 1
+
+	// Add search condition if provided
+	if search != "" {
+		searchPattern := "%" + search + "%"
+		// Ensure search applies to both username/email and role name if desired
+		countQuery += fmt.Sprintf(" AND (a.username ILIKE $%d OR a.email ILIKE $%d OR b.name ILIKE $%d)", argCounter, argCounter+1, argCounter+2)
+		selectQuery += fmt.Sprintf(" AND (a.username ILIKE $%d OR a.email ILIKE $%d OR b.name ILIKE $%d)", argCounter, argCounter+1, argCounter+2)
+		args = append(args, searchPattern, searchPattern, searchPattern)
+		argCounter += 3 // Increment by 3 for 3 placeholders
+	}
+
+	// Get total items
+	err := database.DB.QueryRow(countQuery, args...).Scan(&totalItems)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("failed to count users: %w", err)
+	}
+
+	// Calculate pagination offsets
+	offset := (page - 1) * limit
+	selectQuery += fmt.Sprintf(" ORDER BY a.username ASC LIMIT $%d OFFSET $%d", argCounter, argCounter+1)
+	args = append(args, limit, offset)
+
+	rows, err := database.DB.Query(selectQuery, args...)
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("failed to query users: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var user models.User
+		// Scan directly into user.RoleName
+		err := rows.Scan(&user.ID, &user.Username, &user.Email, &user.RoleID, &user.RoleName, &user.CreatedAt, &user.UpdatedAt)
+		if err != nil {
+			log.Printf("Error scanning user row: %v", err)
+			return nil, 0, 0, fmt.Errorf("failed to scan user: %w", err)
+		}
+		users = append(users, user)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, 0, 0, fmt.Errorf("error iterating user rows: %w", err)
+	}
+
+	totalPages := (totalItems + limit - 1) / limit
+	if totalPages == 0 && totalItems > 0 { // Handle case where totalItems < limit
+		totalPages = 1
+	}
+
+	return users, totalPages, totalItems, nil
+}
+
+func (s *UserService) GetAllRoles() ([]models.LstRole, error) {
+	if database.DB == nil {
+		return nil, fmt.Errorf("database connection is not initialized")
+	}
+
+	var roles []models.LstRole
+
+	// Query only for ID and Name, as models.LstRole likely only contains these fields.
+	query := `SELECT id, name FROM roles ORDER BY name ASC`
+
+	rows, err := database.DB.Query(query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query roles: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var role models.LstRole
+		// Scan only ID and Name
+		err := rows.Scan(&role.ID, &role.Name)
+		if err != nil {
+			log.Printf("Error scanning role row: %v", err)
+			return nil, fmt.Errorf("failed to scan role: %w", err)
+		}
+		roles = append(roles, role)
+	}
+
+	if err = rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating role rows: %w", err)
+	}
+
+	return roles, nil
 }
 
 // GetUserByID fetches a user by their ID, including their associated role.
@@ -141,28 +242,40 @@ func (s *UserService) CreateUser(user *models.User) error {
 
 // UpdateUser updates an existing user's information in the database.
 // It updates username, email, and role_id. Password is not updated here.
-func (s *UserService) UpdateUser(user *models.User) error {
+func (s *UserService) UpdateUser(req *models.UpdateUserRequest) error {
 	if database.DB == nil {
 		return fmt.Errorf("database connection is not initialized")
 	}
 
-	user.UpdatedAt = time.Now() // Update the timestamp
+	// Start building the query and arguments
+	// Always update username, email, role_id, and updated_at
+	query := "UPDATE users SET username = $1, email = $2, role_id = $3, updated_at = $4"
+	args := []interface{}{
+		req.Username,
+		req.Email,
+		req.RoleID,
+		time.Now(), // updated_at
+	}
+	argCounter := 5 // Next placeholder will be $5 for WHERE clause or password
 
-	query := `
-		UPDATE users
-		SET username = $1, email = $2, role_id = $3, updated_at = $4
-		WHERE id = $5
-	`
-	result, err := database.DB.Exec(
-		query,
-		user.Username,
-		user.Email,
-		user.RoleID,
-		user.UpdatedAt,
-		user.ID,
-	)
+	// Conditionally add password update if a new password is provided
+	if req.Password != nil && *req.Password != "" {
+		hashedPassword, err := HashPassword(*req.Password)
+		if err != nil {
+			return fmt.Errorf("failed to hash new password: %w", err)
+		}
+		query += fmt.Sprintf(", password_hash = $%d", argCounter)
+		args = append(args, hashedPassword)
+		argCounter++
+	}
+
+	// Add the WHERE clause
+	query += fmt.Sprintf(" WHERE id = $%d", argCounter)
+	args = append(args, req.ID)
+
+	result, err := database.DB.Exec(query, args...)
 	if err != nil {
-		log.Printf("Error updating user %s: %v", user.ID, err)
+		log.Printf("Error updating user %s: %v", req.ID, err)
 		return fmt.Errorf("failed to update user: %w", err)
 	}
 
@@ -171,10 +284,18 @@ func (s *UserService) UpdateUser(user *models.User) error {
 		return fmt.Errorf("failed to check rows affected after update: %w", err)
 	}
 	if rowsAffected == 0 {
-		return fmt.Errorf("user with ID %s not found for update", user.ID)
+		return fmt.Errorf("user with ID %s not found for update", req.ID)
 	}
 
 	return nil
+}
+
+func HashPassword(password string) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", fmt.Errorf("failed to hash password: %w", err)
+	}
+	return string(bytes), nil
 }
 
 // DeleteUser deletes a user from the database by their ID.
