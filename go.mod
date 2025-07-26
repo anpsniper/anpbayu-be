@@ -3,9 +3,12 @@ module github.com/anpsniper/anpbayu-be
 go 1.24.4
 
 require (
+	github.com/gofiber/contrib/jwt v1.1.2
 	github.com/golang-jwt/jwt/v5 v5.2.3
 	github.com/joho/godotenv v1.5.1
 )
+
+require github.com/MicahParks/keyfunc/v2 v2.1.0 // indirect
 
 require (
 	github.com/andybalholm/brotli v1.1.0 // indirect

@@ -6,12 +6,13 @@ import (
 	"log"
 	"time"
 
+	"github.com/anpsniper/anpbayu-be/config"   // Import the config package
 	"github.com/anpsniper/anpbayu-be/database" // Import the database package
 	"github.com/google/uuid"                   // For generating UUIDs
 	"golang.org/x/crypto/bcrypt"               // For password hashing
 )
 
-// SeedRoles ensures that default roles (admin, user) exist in the database.
+// SeedRoles ensures that default roles (admin, user, premium_user) exist in the database.
 // It now uses the global DB connection from the database package.
 func SeedRoles() error {
 	// Ensure the database connection is available
@@ -25,6 +26,7 @@ func SeedRoles() error {
 	}{
 		{"admin", "Administrator role with full system access."},
 		{"user", "Standard user role with general access."},
+		{"premium_user", "User with premium features."}, // Added premium_user as per previous discussions
 	}
 
 	for _, roleData := range rolesToSeed {
@@ -58,7 +60,7 @@ func SeedRoles() error {
 	return nil
 }
 
-// SeedExampleUser creates an example user and assigns them the 'user' role.
+// SeedExampleUser creates an example admin user if none exists, using credentials from config.
 // It now uses the global DB connection from the database package.
 func SeedExampleUser() error {
 	// Ensure the database connection is available
@@ -66,19 +68,21 @@ func SeedExampleUser() error {
 		return fmt.Errorf("database connection is not initialized. Call database.InitDatabase() first")
 	}
 
-	// Find the 'user' role ID
-	var userRoleID string
-	err := database.DB.QueryRow("SELECT id FROM roles WHERE name = 'user'").Scan(&userRoleID)
+	// Find the 'admin' role ID
+	var adminRoleID string
+	err := database.DB.QueryRow("SELECT id FROM roles WHERE name = 'admin'").Scan(&adminRoleID)
 	if err == sql.ErrNoRows {
-		return fmt.Errorf("'user' role not found. Please ensure roles are seeded first")
+		log.Println("'admin' role not found. Please ensure roles are seeded first.")
+		return nil // Don't return an error that stops the app, just skip seeding user
 	}
 	if err != nil {
-		return fmt.Errorf("failed to retrieve 'user' role ID: %w", err)
+		return fmt.Errorf("failed to retrieve 'admin' role ID: %w", err)
 	}
 
-	exampleEmail := "user@example.com"
-	exampleUsername := "exampleuser"
-	examplePassword := "password123" // This should be a strong, default password
+	// Use email and password from configuration
+	exampleEmail := config.AppConfig.AuthEmail
+	examplePassword := config.AppConfig.AuthPassword
+	exampleUsername := "AdminUser" // Default username for the admin
 
 	// Check if the example user already exists
 	var existingUserID string
@@ -98,20 +102,20 @@ func SeedExampleUser() error {
 			exampleUsername,
 			exampleEmail,
 			string(hashedPassword),
-			userRoleID,
+			adminRoleID, // Assign the admin role
 			time.Now(),
 			time.Now(),
 		)
 		if err != nil {
-			return fmt.Errorf("failed to insert example user: %w", err)
+			return fmt.Errorf("failed to insert example admin user: %w", err)
 		}
-		log.Printf("Example user '%s' seeded successfully with ID: %s and Role ID: %s", exampleEmail, newUserID, userRoleID)
+		log.Printf("Example admin user '%s' seeded successfully with ID: %s and Role ID: %s", exampleEmail, newUserID, adminRoleID)
 	} else if err != nil {
 		// Other database error
-		return fmt.Errorf("failed to check for existing example user: %w", err)
+		return fmt.Errorf("failed to check for existing example admin user: %w", err)
 	} else {
 		// User already exists
-		log.Printf("Example user '%s' already exists with ID: %s and Role ID: %s", exampleEmail, existingUserID, userRoleID)
+		log.Printf("Example admin user '%s' already exists with ID: %s and Role ID: %s", exampleEmail, existingUserID, adminRoleID)
 	}
 
 	return nil

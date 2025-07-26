@@ -30,6 +30,7 @@ func (c *UserController) GetAllUsers(ctx *fiber.Ctx) error {
 	log.Println("GetAllUsers endpoint hit.")
 
 	search := ctx.Query("search", "")                 // Get search term, default to empty string
+	roleID := ctx.Query("role_id", "")                // NEW: Get role_id, default to empty string
 	page, err := strconv.Atoi(ctx.Query("page", "1")) // Get page number, default to 1
 	if err != nil || page < 1 {
 		page = 1
@@ -39,7 +40,8 @@ func (c *UserController) GetAllUsers(ctx *fiber.Ctx) error {
 		limit = 10
 	}
 
-	users, totalPages, totalItems, err := c.UserService.GetAllUsers(search, page, limit)
+	// Pass the new roleID parameter to the service layer
+	users, totalPages, totalItems, err := c.UserService.GetAllUsers(search, roleID, page, limit)
 	if err != nil {
 		log.Printf("Error fetching all users: %v", err)
 		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{

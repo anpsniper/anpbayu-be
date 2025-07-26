@@ -36,13 +36,11 @@ func InitDatabase(cfg *config.Config) error {
 	}
 
 	// Set connection pool settings
-	DB.SetMaxOpenConns(25)                 // Max number of open connections
-	DB.SetMaxIdleConns(10)                 // Max number of idle connections
-	DB.SetConnMaxLifetime(5 * time.Minute) // Max lifetime for a connection
+	DB.SetMaxOpenConns(25)
+	DB.SetMaxIdleConns(10)
+	DB.SetConnMaxLifetime(5 * time.Minute)
 
 	// SQL DDL to create tables if they don't exist
-	// This should match your schema defined earlier.
-	// Ensure the 'update_updated_at_column' function and triggers are also created.
 	createTablesSQL := `
 	-- Function to update 'updated_at' column
 	CREATE OR REPLACE FUNCTION update_updated_at_column()

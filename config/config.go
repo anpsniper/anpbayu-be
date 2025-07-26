@@ -49,13 +49,13 @@ func LoadConfig() error {
 
 	AppConfig.AuthEmail = os.Getenv("AUTH_EMAIL")
 	if AppConfig.AuthEmail == "" {
-		AppConfig.AuthEmail = "user@example.com" // Default authentication email
+		AppConfig.AuthEmail = "user@example.com" // Default authentication email for seeding
 		log.Printf("AUTH_EMAIL not set, defaulting to %s", AppConfig.AuthEmail)
 	}
 
 	AppConfig.AuthPassword = os.Getenv("AUTH_PASSWORD")
 	if AppConfig.AuthPassword == "" {
-		AppConfig.AuthPassword = "password" // Default authentication password
+		AppConfig.AuthPassword = "password123" // Default authentication password for seeding
 		log.Printf("AUTH_PASSWORD not set, defaulting to default password")
 	}
 

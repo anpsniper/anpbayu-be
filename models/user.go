@@ -12,7 +12,7 @@ type User struct {
 	Password  string    `json:"-"`              // Password should not be marshaled to JSON
 	RoleID    string    `json:"role_id"`        // Foreign key to the roles table
 	Role      *Role     `json:"role,omitempty"` // Embedded Role struct for eager loading, omitempty to exclude if nil
-	RoleName  string    `json:"-"`
+	RoleName  string    `json:"-"`              // This field is not directly mapped to DB column, but can be populated
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }

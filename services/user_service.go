@@ -15,13 +15,15 @@ import (
 // UserServiceInterface defines the methods that any user service implementation must provide.
 // This allows for dependency inversion and easier testing (e.g., by mocking the service).
 type UserServiceInterface interface {
-	GetAllUsers(search string, page, limit int) ([]models.User, int, int, error) // Returns users, totalPages, totalItems
+	GetAllUsers(search string, roleID string, page, limit int) ([]models.User, int, int, error) // Returns users, totalPages, totalItems
 	GetUserByID(id string) (*models.User, error)
 	GetUserByEmail(email string) (*models.User, error)
 	CreateUser(user *models.User) error
 	UpdateUser(req *models.UpdateUserRequest) error
 	DeleteUser(id string) error
 	GetAllRoles() ([]models.LstRole, error)
+	CreateUserLoginLog(userID string) (int, error) // NEW: Method to create a login log
+	UpdateUserLogoutLog(logID int) error           // NEW: Method to update a logout log
 }
 
 // UserService provides methods for user-related business logic, implementing UserServiceInterface.
@@ -36,7 +38,8 @@ func NewUserService() *UserService { // Changed return type to *UserService
 	return &UserService{}
 }
 
-func (s *UserService) GetAllUsers(search string, page, limit int) ([]models.User, int, int, error) {
+// GetAllUsers retrieves a list of users with optional search, role filtering, and pagination.
+func (s *UserService) GetAllUsers(search string, roleID string, page, limit int) ([]models.User, int, int, error) {
 	if database.DB == nil {
 		return nil, 0, 0, fmt.Errorf("database connection is not initialized")
 	}
@@ -50,14 +53,21 @@ func (s *UserService) GetAllUsers(search string, page, limit int) ([]models.User
 	args := []interface{}{}
 	argCounter := 1
 
-	// Add search condition if provided
+	// Add search condition if provided (applies to username, email, or role name)
 	if search != "" {
 		searchPattern := "%" + search + "%"
-		// Ensure search applies to both username/email and role name if desired
 		countQuery += fmt.Sprintf(" AND (a.username ILIKE $%d OR a.email ILIKE $%d OR b.name ILIKE $%d)", argCounter, argCounter+1, argCounter+2)
 		selectQuery += fmt.Sprintf(" AND (a.username ILIKE $%d OR a.email ILIKE $%d OR b.name ILIKE $%d)", argCounter, argCounter+1, argCounter+2)
 		args = append(args, searchPattern, searchPattern, searchPattern)
 		argCounter += 3 // Increment by 3 for 3 placeholders
+	}
+
+	// Add roleID filter if provided
+	if roleID != "" {
+		countQuery += fmt.Sprintf(" AND a.role_id = $%d", argCounter)
+		selectQuery += fmt.Sprintf(" AND a.role_id = $%d", argCounter)
+		args = append(args, roleID)
+		argCounter++ // Increment for the new placeholder
 	}
 
 	// Get total items
@@ -98,6 +108,48 @@ func (s *UserService) GetAllUsers(search string, page, limit int) ([]models.User
 	}
 
 	return users, totalPages, totalItems, nil
+}
+
+// CreateUserLoginLog creates a new login log entry for a user.
+// It returns the ID of the newly created log entry, which can be used for logout.
+func (s *UserService) CreateUserLoginLog(userID string) (int, error) {
+	if database.DB == nil {
+		return 0, fmt.Errorf("database connection is not initialized")
+	}
+
+	var logID int
+	query := `INSERT INTO user_logs (user_id, login_at) VALUES ($1, NOW()) RETURNING id`
+	err := database.DB.QueryRow(query, userID).Scan(&logID)
+	if err != nil {
+		log.Printf("ERROR: Failed to create user login log for user %s: %v", userID, err)
+		return 0, fmt.Errorf("failed to create user login log: %w. Please check if 'user_logs' table exists and its schema matches (id SERIAL PRIMARY KEY, user_id UUID NOT NULL, login_at TIMESTAMP WITH TIME ZONE, logout_at TIMESTAMP WITH TIME ZONE)", err)
+	}
+	log.Printf("INFO: Successfully created login log for user %s with ID: %d", userID, logID)
+	return logID, nil
+}
+
+// UpdateUserLogoutLog updates the logout_at timestamp for a specific user log entry.
+func (s *UserService) UpdateUserLogoutLog(logID int) error {
+	if database.DB == nil {
+		return fmt.Errorf("database connection is not initialized")
+	}
+
+	query := `UPDATE user_logs SET logout_at = NOW() WHERE id = $1`
+	result, err := database.DB.Exec(query, logID)
+	if err != nil {
+		log.Printf("ERROR: Failed to update user logout log for log ID %d: %v", logID, err)
+		return fmt.Errorf("failed to update user logout log: %w. Please check if 'user_logs' table exists and its schema matches (id SERIAL PRIMARY KEY, user_id UUID NOT NULL, login_at TIMESTAMP WITH TIME ZONE, logout_at TIMESTAMP WITH TIME ZONE)", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check rows affected after logout log update: %w", err)
+	}
+	if rowsAffected == 0 {
+		return fmt.Errorf("user log entry with ID %d not found for logout update", logID)
+	}
+	log.Printf("INFO: Successfully updated logout log for ID: %d", logID)
+	return nil
 }
 
 func (s *UserService) GetAllRoles() ([]models.LstRole, error) {
@@ -156,7 +208,7 @@ func (s *UserService) GetUserByID(id string) (*models.User, error) {
 	`
 	err := database.DB.QueryRow(query, id).Scan(
 		&user.ID, &user.Username, &user.Email, &user.Password, &user.RoleID, &user.CreatedAt, &user.UpdatedAt,
-		&role.ID, &role.Name, &role.Description, &role.CreatedAt, &role.UpdatedAt,
+		&role.ID, &user.RoleName, &role.Description, &role.CreatedAt, &role.UpdatedAt, // FIX: Scan r.name into user.RoleName
 	)
 
 	if err == sql.ErrNoRows {
@@ -193,7 +245,7 @@ func (s *UserService) GetUserByEmail(email string) (*models.User, error) {
 	`
 	err := database.DB.QueryRow(query, email).Scan(
 		&user.ID, &user.Username, &user.Email, &user.Password, &user.RoleID, &user.CreatedAt, &user.UpdatedAt,
-		&role.ID, &role.Name, &role.Description, &role.CreatedAt, &role.UpdatedAt,
+		&role.ID, &user.RoleName, &role.Description, &role.CreatedAt, &role.UpdatedAt, // FIX: Scan r.name into user.RoleName
 	)
 
 	if err == sql.ErrNoRows {
