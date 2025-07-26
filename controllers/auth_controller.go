@@ -54,7 +54,7 @@ func (c *AuthController) Login(ctx *fiber.Ctx) error {
 
 	// Generate JWT token
 	// Assuming GenerateJWT takes userID and a slice of roles (strings)
-	token, err := middleware.GenerateJWT(user.ID, []string{user.RoleName}) // Pass user.RoleName as a slice
+	token, err := middleware.GenerateJWT(user.ID, user.Email, []string{user.RoleName}) // Pass user.RoleName as a slice
 	if err != nil {
 		log.Printf("Error generating JWT: %v", err)
 		return ctx.Status(http.StatusInternalServerError).JSON(fiber.Map{"status": "error", "message": "Failed to generate token"})

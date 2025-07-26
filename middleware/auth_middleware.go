@@ -11,10 +11,11 @@ import (
 
 // GenerateJWT creates a new JWT token for the given user ID and roles.
 // Make sure this function exists and is exported (starts with a capital G).
-func GenerateJWT(userID string, roles []string) (string, error) {
+func GenerateJWT(userID string, email string, roles []string) (string, error) {
 	// Define your claims
 	claims := jwt.MapClaims{
 		"user_id": userID,
+		"email":   email,
 		"roles":   roles,
 		"exp":     time.Now().Add(time.Hour * 24).Unix(), // Token expires in 24 hours
 		"iat":     time.Now().Unix(),

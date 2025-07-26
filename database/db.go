@@ -144,6 +144,16 @@ func InitDatabase(cfg *config.Config) error {
 		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
 		CONSTRAINT fk_sessions_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 	);
+
+	-- Create 'user_logs' table
+	CREATE TABLE IF NOT EXISTS user_logs (
+		id serial4 NOT NULL,
+		user_id uuid NOT NULL,
+		login_at timestamptz DEFAULT now() NOT NULL,
+		logout_at timestamptz NULL,
+		CONSTRAINT user_logs_pkey PRIMARY KEY (id),
+		CONSTRAINT user_logs_user_id_fkey FOREIGN KEY (user_id) REFERENCES db_bayneta.users(id) ON DELETE CASCADE
+	);
 	`
 
 	log.Println("Creating tables if they do not exist...")
